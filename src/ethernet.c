@@ -45,8 +45,8 @@ void ethernet_out(buf_t *buf, const uint8_t *mac, net_protocol_t protocol)
     buf_add_header(buf, sizeof(ether_hdr_t));
     ether_hdr_t *hrd = (ether_hdr_t *)buf->data;
     // 设置包头
-    uint8_t local_mac[NET_MAC_LEN] = NET_IF_MAC;
-    memcpy(hrd->src, local_mac, NET_MAC_LEN);
+    // uint8_t local_mac[NET_MAC_LEN] = NET_IF_MAC;
+    memcpy(hrd->src, net_if_mac, NET_MAC_LEN);
     memcpy(hrd->dst, mac, NET_MAC_LEN);
     hrd->protocol16 = swap16(protocol);
     // 发送函数

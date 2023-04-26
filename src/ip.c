@@ -13,6 +13,42 @@
 void ip_in(buf_t *buf, uint8_t *src_mac)
 {
     // TO-DO
+    // 判断arp头部大小
+    if (buf->len < IP_HDR_LEN) {
+        return;
+    }
+    // 获取数据
+    ip_hdr_t *hrd = (ip_hdr_t *)buf->data;
+    // 报头检测
+    if (hrd->version != IP_VERSION_4 || hrd->total_len16 > buf->len){
+        return;
+    }
+    // 保存首部校验和并置零
+    uint16_t checksum16_save = hrd->hdr_checksum16;
+    hrd->hdr_checksum16 = 0;
+    if (checksum16_save != checksum16(buf->data, IP_HDR_LEN)) {
+        return;
+    }
+    // 恢复校验和
+    hrd->hdr_checksum16 = checksum16_save;
+    // 判断ip地址是否为本机ip地址
+    if (memcmp(hrd->dst_ip, net_if_ip, NET_IP_LEN)!=0) {
+        return;
+    }
+    // 去除填充字段
+    if (buf->len > hrd->total_len16) {
+        buf_remove_padding(buf, (buf->len) - (hrd->total_len16));
+    }
+    // 去除ip报头
+    buf_remove_header(buf, IP_HDR_LEN);
+    // 向上层传递
+    int protocol = hrd->protocol;
+    if (protocol == NET_PROTOCOL_ICMP || protocol == NET_PROTOCOL_UDP || protocol == NET_PROTOCOL_TCP) {
+        net_in(buf, hrd->protocol, hrd->src_ip);
+    }
+    else {
+        icmp_unreachable(buf, hrd->src_ip, ICMP_CODE_PORT_UNREACH);
+    }
 }
 
 /**

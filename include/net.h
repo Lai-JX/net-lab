@@ -24,6 +24,8 @@ typedef void (*net_handler_t)(buf_t *buf, uint8_t *src);
 extern uint8_t net_if_mac[NET_MAC_LEN];
 extern uint8_t net_if_ip[NET_IP_LEN];
 extern buf_t rxbuf, txbuf; //一个buf足够单线程使用
+// static const uint8_t LOCAL_IP[] = NET_IF_IP; //本机ip地址
+// static const uint8_t LOCAL_MAC[] = NET_IF_MAC; //本机mac地址
 
 int net_init();
 void net_poll();

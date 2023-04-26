@@ -8,6 +8,8 @@
 #define UDP
 #define TCP
 #define HTTP
+#include <stdint.h>
+
 
 
 #ifdef TEST

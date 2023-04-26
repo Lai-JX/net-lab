@@ -21,6 +21,7 @@ typedef struct ip_hdr
 #pragma pack()
 
 #define IP_HDR_LEN_PER_BYTE 4      //ip包头长度单位
+#define IP_HDR_LEN sizeof(ip_hdr_t)               //ip包头最小长度
 #define IP_HDR_OFFSET_PER_BYTE 8   //ip分片偏移长度单位
 #define IP_VERSION_4 4             //ipv4
 #define IP_MORE_FRAGMENT (1 << 13) //ip分片mf位

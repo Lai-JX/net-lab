@@ -62,18 +62,15 @@ void arp_req(uint8_t *target_ip)
 {
     // TO-DO
     // 初始化网卡发送缓冲区
-    buf_init(&txbuf, ETHERNET_MAX_TRANSPORT_UNIT + sizeof(ether_hdr_t));
-    
     // 声明buf并封装arp  注：这里无需填充，因为ethernet_out发现数据包小于46时会进行填充
-    buf_t arp_buf;
-    buf_init(&arp_buf, sizeof(arp_pkt_t));
-    arp_pkt_t *arp_pkt = (arp_pkt_t *)(arp_buf.data);
+    buf_init(&txbuf, sizeof(arp_pkt_t));
+    arp_pkt_t *arp_pkt = (arp_pkt_t *)(txbuf.data);
     memcpy(arp_pkt, &arp_init_pkt, sizeof(arp_pkt_t));
     memcpy(arp_pkt->target_ip, target_ip, NET_IP_LEN);
     arp_pkt->opcode16 = swap16(ARP_REQUEST);
 
     // 调用ethernet_out发送
-    ethernet_out(&arp_buf, ether_broadcast_mac, NET_PROTOCOL_ARP);
+    ethernet_out(&txbuf, ether_broadcast_mac, NET_PROTOCOL_ARP);
 }
 
 /**
@@ -86,19 +83,16 @@ void arp_resp(uint8_t *target_ip, uint8_t *target_mac)
 {
     // TO-DO
     // 初始化网卡发送缓冲区
-    buf_init(&txbuf, ETHERNET_MAX_TRANSPORT_UNIT + sizeof(ether_hdr_t));
-
     // 声明buf并封装arp  注：这里无需填充，因为ethernet_out发现数据包小于46时会进行填充
-    buf_t arp_buf;
-    buf_init(&arp_buf, sizeof(arp_pkt_t));
-    arp_pkt_t *arp_pkt = (arp_pkt_t *)(arp_buf.data);
+    buf_init(&txbuf, sizeof(arp_pkt_t));
+    arp_pkt_t *arp_pkt = (arp_pkt_t *)(txbuf.data);
     memcpy(arp_pkt, &arp_init_pkt, sizeof(arp_pkt_t));
     memcpy(arp_pkt->target_ip, target_ip, NET_IP_LEN);
     memcpy(arp_pkt->target_mac, target_mac, NET_MAC_LEN);
     arp_pkt->opcode16 = swap16(ARP_REPLY);
 
     // 调用ethernet_out发送
-    ethernet_out(&arp_buf, target_mac, NET_PROTOCOL_ARP);
+    ethernet_out(&txbuf, target_mac, NET_PROTOCOL_ARP);
 }
 
 /**
@@ -126,8 +120,8 @@ void arp_in(buf_t *buf, uint8_t *src_mac)
     uint8_t mac[NET_MAC_LEN];
     memcpy(ip, hrd->sender_ip, NET_IP_LEN);
     memcpy(mac, hrd->sender_mac, NET_MAC_LEN);
-    uint8_t local_ip[NET_IP_LEN] = NET_IF_IP;
-    uint8_t local_mac[NET_MAC_LEN] = NET_IF_MAC;
+    // uint8_t local_ip[NET_IP_LEN] = NET_IF_IP;
+    // uint8_t local_mac[NET_MAC_LEN] = NET_IF_MAC;
 
     // 更新arp表
     map_set(&arp_table, ip, mac);
@@ -135,7 +129,7 @@ void arp_in(buf_t *buf, uint8_t *src_mac)
     buf_t *buf_ = map_get(&arp_buf, ip);
     if (buf_ == NULL)
     {
-        if (hrd->opcode16 == swap16(ARP_REQUEST) && memcmp(hrd->target_ip, local_ip, NET_IP_LEN)==0)
+        if (hrd->opcode16 == swap16(ARP_REQUEST) && memcmp(hrd->target_ip, net_if_ip, NET_IP_LEN)==0)
         {
             arp_resp(ip, mac);
         }

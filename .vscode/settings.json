@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "icmp.h": "c",
+        "net.h": "c",
+        "map.h": "c",
+        "stdint.h": "c"
+    }
+}

@@ -67,7 +67,7 @@ void tcp_init() {
  * @return int
  */
 int tcp_open(uint16_t port, tcp_handler_t handler) {
-    // printf("tcp open\n");
+    printf("tcp open\n");
     return map_set(&tcp_table, &port, &handler);
 }
 
@@ -183,7 +183,7 @@ static uint16_t tcp_write_to_buf(tcp_connect_t* connect, buf_t* buf) {
  * @param flags
  */
 static void tcp_send(buf_t* buf, tcp_connect_t* connect, tcp_flags_t flags) {
-    // printf("<< tcp send >> sz=%zu\n", buf->len);
+    printf("<< tcp send >> sz=%zu\n", buf->len);
     display_flags(flags);
     size_t prev_len = buf->len;
     buf_add_header(buf, sizeof(tcp_hdr_t));
@@ -280,20 +280,33 @@ size_t tcp_connect_write(tcp_connect_t* connect, const uint8_t* data, size_t len
  * @param src_ip
  */
 void tcp_in(buf_t* buf, uint8_t* src_ip) {
-    // printf("<<< tcp_in >>>\n");
+    printf("<<< tcp_in >>>\n");
 
     /*
     1、大小检查，检查buf长度是否小于tcp头部，如果是，则丢弃
     */
 
    // TODO
+    if (buf->len < sizeof(tcp_hdr_t)) {
+        return;
+    }
 
     /*
     2、检查checksum字段，如果checksum出错，则丢弃
     */
 
    // TODO
-
+    // 获取数据
+    tcp_hdr_t *hrd = (tcp_hdr_t *)buf->data;
+    // 保存首部校验和并置零
+    uint16_t chunksum16_save = hrd->chunksum16;
+    hrd->chunksum16 = 0;
+    if (chunksum16_save != tcp_checksum(buf, src_ip, net_if_ip))
+    {
+        return;
+    }
+    // 恢复校验和
+    hrd->chunksum16 = chunksum16_save;
 
 
     /*
@@ -302,20 +315,26 @@ void tcp_in(buf_t* buf, uint8_t* src_ip) {
     */
 
    // TODO
-
+    uint16_t src_port16 = swap16(hrd->src_port16);
+    uint16_t dst_port16 = swap16(hrd->dst_port16);
+    uint32_t get_seq = swap32(hrd->seq_number32);
+    uint32_t ack_num = swap32(hrd->ack_number32);
+    tcp_flags_t flags = hrd->flags;
+    display_flags(flags);
 
     /*
     4、调用map_get函数，根据destination port查找对应的handler函数
     */
 
    // TODO
+    tcp_handler_t *handler = map_get(&tcp_table, &dst_port16);
 
     /*
     5、调用new_tcp_key函数，根据通信五元组中的源IP地址、目标IP地址、目标端口号确定一个tcp链接key
     */
 
    // TODO
-
+    tcp_key_t key = new_tcp_key(src_ip, src_port16, dst_port16);
 
     /*
     6、调用map_get函数，根据key查找一个tcp_connect_t* connect，
@@ -323,12 +342,20 @@ void tcp_in(buf_t* buf, uint8_t* src_ip) {
     */
 
     // TODO
+    tcp_connect_t *connect = map_get(&connect_table, &key);
+    if( connect == NULL)
+    {
+        map_set(&connect_table, &key, &CONNECT_LISTEN);
+        connect = map_get(&connect_table, &key);
+        memcpy(connect->ip, src_ip, NET_IP_LEN);
+    }
 
     /*
     7、从TCP头部字段中获取对方的窗口大小，注意大小端转换
     */
 
    // TODO
+    uint16_t win_size = swap16(hrd->window_size16);
 
     /*
     8、如果为TCP_LISTEN状态，则需要完成如下功能：
@@ -346,142 +373,227 @@ void tcp_in(buf_t* buf, uint8_t* src_ip) {
     */
 
    // TODO
+    if (connect->state == TCP_LISTEN)
+    {
+        // （1）如果收到的flag带有rst，则close_tcp关闭tcp链接
+        if (flags.rst)
+            goto close_tcp;
 
+        // （2）如果收到的flag不是syn，则reset_tcp复位通知。因为收到的第一个包必须是syn
+        if (!flags.syn)
+            goto reset_tcp;
+
+        // （3）调用init_tcp_connect_rcvd函数，初始化connect，将状态设为TCP_SYN_RCVD
+        init_tcp_connect_rcvd(connect);
+
+        // （4）填充connect字段
+        connect->local_port = dst_port16;
+        connect->remote_port = src_port16;
+        srand((unsigned)time(NULL));
+        connect->unack_seq = rand();
+        // connect->unack_seq = 100;
+        connect->next_seq = connect->unack_seq;
+        connect->ack = get_seq + 1;
+        connect->remote_win = win_size;
+        // （5）调用buf_init初始化txbuf
+        buf_init(&txbuf, 0);    // 数据部分无内容
+
+        // （6）调用tcp_send将txbuf发送出去，也就是回复一个tcp_flags_ack_syn（SYN+ACK）报文
+        tcp_send(&txbuf, connect, tcp_flags_ack_syn);
+
+        return;
+    }
 
     /* 
     9、检查接收到的sequence number，如果与ack序号不一致,则reset_tcp复位通知。
     */
-
-   // TODO
+    // TODO
+    if (get_seq != connect->ack)
+        goto reset_tcp;
 
     /* 
     10、检查flags是否有rst标志，如果有，则close_tcp连接重置
     */
 
    // TODO
+    if (flags.rst)
+        goto close_tcp;
 
     /*
     11、序号相同时的处理，调用buf_remove_header去除头部后剩下的都是数据
     */
 
    // TODO
+    buf_remove_header(buf, sizeof(tcp_hdr_t));
 
     /* 状态转换
     */
-//     switch (connect->state) {
-//     case TCP_LISTEN:
-//         panic("switch TCP_LISTEN", __LINE__);
-//         break;
+    switch (connect->state) {
+    case TCP_LISTEN:
+        panic("switch TCP_LISTEN", __LINE__);
+        break;
 
-//     case TCP_SYN_RCVD:
+    case TCP_SYN_RCVD:
 
-//         /*
-//         12、在RCVD状态，如果收到的包没有ack flag，则不做任何处理
-//         */  
+        /*
+        12、在RCVD状态，如果收到的包没有ack flag，则不做任何处理
+        */  
 
-//        // TODO
+       // TODO
+        if (!flags.ack)
+            break;
 
-//         /*
-//         13、如果是ack包，需要完成如下功能：
-//             （1）将unack_seq +1
-//             （2）将状态转成ESTABLISHED
-//             （3）调用回调函数，完成三次握手，进入连接状态TCP_CONN_CONNECTED。
-//         */
-        
-//         // TODO
+        /*
+        13、如果是ack包，需要完成如下功能：
+            （1）将unack_seq +1
+            （2）将状态转成ESTABLISHED
+            （3）调用回调函数，完成三次握手，进入连接状态TCP_CONN_CONNECTED。
+        */
 
+        // TODO
+        connect->unack_seq += 1;
+        connect->state = TCP_ESTABLISHED;
+        (*handler)(connect, TCP_CONN_CONNECTED);
+        break;
 
-//     case TCP_ESTABLISHED:
+    case TCP_ESTABLISHED:
 
-//         /*
-//         14、如果收到的包没有ack且没有fin这两个标志，则不做任何处理
-//         */
+        /*
+        14、如果收到的包没有ack且没有fin这两个标志，则不做任何处理
+        */
 
-//        // TODO
+       // TODO
+        if (!flags.ack && !flags.fin)
+            break;
 
-
-//         /*
-//         15、这里先处理ACK的值，
-//             如果是ack包，
-//             且unack_seq小于sequence number（说明有部分数据被对端接收确认了，否则可能是之前重发的ack，可以不处理），
-//             且next_seq大于sequence number
-//             则调用buf_remove_header函数，去掉被对端接收确认的部分数据，并更新unack_seq值
+        /*
+        15、这里先处理ACK的值，
+            如果是ack包，
+            且unack_seq小于sequence number（说明有部分数据被对端接收确认了，否则可能是之前重发的ack，可以不处理），
+            且next_seq大于sequence number
+            则调用buf_remove_header函数，去掉被对端接收确认的部分数据，并更新unack_seq值
             
-//         */
+        */
 
-//        // TODO
+       // TODO
+        if (flags.ack)
+        {
+            if (connect->unack_seq < ack_num && connect->next_seq > ack_num)
+            {
+                buf_remove_header(connect->tx_buf, ack_num - connect->unack_seq);        // 注意更新的是connect->txbuf缓冲区
+                connect->unack_seq = ack_num;
+            }
+        }
 
+        /*
+        16、然后接收数据
+            调用tcp_read_from_buf函数，把buf放入rx_buf中
+        */
 
-//         /*
-//         16、然后接收数据
-//             调用tcp_read_from_buf函数，把buf放入rx_buf中
-//         */
+       // TODO
+        tcp_read_from_buf(connect, buf);
 
-//        // TODO
+        /*
+        17、再然后，根据当前的标志位进一步处理
+            （1）首先调用buf_init初始化txbuf
+            （2）判断是否收到关闭请求（FIN），如果是，将状态改为TCP_LAST_ACK，ack +1，再发送一个ACK + FIN包，并退出，
+                这样就无需进入CLOSE_WAIT，直接等待对方的ACK
+            （3）如果不是FIN，则看看是否有数据，如果有，则发ACK相应，并调用handler回调函数进行处理
+            （4）调用tcp_write_to_buf函数，看看是否有数据需要发送，如果有，同时发数据和ACK
+            （5）没有收到数据，可能对方只发一个ACK，可以不响应
 
-//         /*
-//         17、再然后，根据当前的标志位进一步处理
-//             （1）首先调用buf_init初始化txbuf
-//             （2）判断是否收到关闭请求（FIN），如果是，将状态改为TCP_LAST_ACK，ack +1，再发送一个ACK + FIN包，并退出，
-//                 这样就无需进入CLOSE_WAIT，直接等待对方的ACK
-//             （3）如果不是FIN，则看看是否有数据，如果有，则发ACK相应，并调用handler回调函数进行处理
-//             （4）调用tcp_write_to_buf函数，看看是否有数据需要发送，如果有，同时发数据和ACK
-//             （5）没有收到数据，可能对方只发一个ACK，可以不响应
+        */
 
-//         */
+       // TODO
+        // （1）首先调用buf_init初始化txbuf
+        buf_init(&txbuf, 0);
 
-//        // TODO
+        // （2）判断是否收到关闭请求（FIN），如果是，将状态改为TCP_LAST_ACK，ack +1，再发送一个ACK + FIN包，并退出，这样就无需进入CLOSE_WAIT，直接等待对方的ACK
+        if (flags.fin) {
+            connect->state = TCP_LAST_ACK;
+            connect->ack += 1;
+            tcp_send(&txbuf, connect, tcp_flags_ack_fin);
+            break;
+        }
 
+        // （3）如果不是FIN，则看看是否有数据，如果有，则发ACK相应，并调用handler回调函数进行处理
+        if (connect->rx_buf->len)
+        {
+            (*handler)(connect, TCP_CONN_DATA_RECV);
+            // （4）调用tcp_write_to_buf函数，看看是否有数据需要发送，如果有，同时发数据和ACK
+            tcp_write_to_buf(connect, &txbuf);
 
-//         break;
+            tcp_send(&txbuf, connect, tcp_flags_ack);
+        }
+        
+        
+        // （5）没有收到数据，可能对方只发一个ACK，可以不响应
 
-//     case TCP_CLOSE_WAIT:
-//         panic("switch TCP_CLOSE_WAIT", __LINE__);
-//         break;
+        break;
 
-//     case TCP_FIN_WAIT_1:
+    case TCP_CLOSE_WAIT:
+        panic("switch TCP_CLOSE_WAIT", __LINE__);
+        break;
 
-//         /*
-//         18、如果收到FIN && ACK，则close_tcp直接关闭TCP
-//             如果只收到ACK，则将状态转为TCP_FIN_WAIT_2
-//         */
+    case TCP_FIN_WAIT_1:
 
-//        // TODO
+        /*
+        18、如果收到FIN && ACK，则close_tcp直接关闭TCP
+            如果只收到ACK，则将状态转为TCP_FIN_WAIT_2
+        */
 
-//         break;
+       // TODO
+        if (flags.fin && flags.ack)
+            goto close_tcp;
+        if (flags.ack)
+            connect->state = TCP_FIN_WAIT_2;
 
-//     case TCP_FIN_WAIT_2:
-//         /*
-//         19、如果不是FIN，则不做处理
-//             如果是，则将ACK +1，调用buf_init初始化txbuf，调用tcp_send发送一个ACK数据包，再close_tcp关闭TCP
-//         */
+        break;
 
-//        // TODO
+    case TCP_FIN_WAIT_2:
+        /*
+        19、如果不是FIN，则不做处理
+            如果是，则将ACK +1，调用buf_init初始化txbuf，调用tcp_send发送一个ACK数据包，再close_tcp关闭TCP
+        */
 
-//         break;
+       // TODO
+       if (flags.fin)
+       {
+            connect->ack += 1;
+            buf_init(&txbuf, 0);
+            tcp_send(&txbuf, connect, tcp_flags_ack);
+            goto close_tcp;
+       }
 
-//     case TCP_LAST_ACK:
-//         /*
-//         20、如果不是ACK，则不做处理
-//             如果是，则调用handler函数，进入TCP_CONN_CLOSED状态，，再close_tcp关闭TCP
-//         */
+        break;
 
-//        // TODO
+    case TCP_LAST_ACK:
+        /*
+        20、如果不是ACK，则不做处理
+            如果是，则调用handler函数，进入TCP_CONN_CLOSED状态，，再close_tcp关闭TCP
+        */
 
-//     default:
-//         panic("connect->state", __LINE__);
-//         break;
-//     }
-//     return;
+       // TODO
+        if (flags.ack) {
+            (*handler)(connect, TCP_CONN_CLOSED);
+            goto close_tcp;
+        }
+           
 
-// reset_tcp:
-//     printf("!!! reset tcp !!!\n");
-//     connect->next_seq = 0;
-//     connect->ack = get_seq + 1;
-//     buf_init(&txbuf, 0);
-//     tcp_send(&txbuf, connect, tcp_flags_ack_rst);
-// close_tcp:
-//     release_tcp_connect(connect);
-//     map_delete(&connect_table, &key);
-//     return;
+    default:
+        panic("connect->state", __LINE__);
+        break;
+    }
+    return;
+
+reset_tcp:
+    printf("!!! reset tcp !!!\n");
+    connect->next_seq = 0;
+    connect->ack = get_seq + 1;
+    buf_init(&txbuf, 0);
+    tcp_send(&txbuf, connect, tcp_flags_ack_rst);
+close_tcp:
+    release_tcp_connect(connect);
+    map_delete(&connect_table, &key);
+    return;
 }

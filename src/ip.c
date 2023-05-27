@@ -51,7 +51,7 @@ void ip_in(buf_t *buf, uint8_t *src_mac)
     // 向上层传递
     int protocol = hrd->protocol;
     // printf("ip protocol %d\n", protocol);
-    if (protocol == NET_PROTOCOL_ICMP || protocol == NET_PROTOCOL_UDP) {    //  || protocol == NET_PROTOCOL_TCP
+    if (protocol == NET_PROTOCOL_ICMP || protocol == NET_PROTOCOL_UDP || protocol == NET_PROTOCOL_TCP) {    //  || protocol == NET_PROTOCOL_TCP
         // 去除ip报头
         uint8_t src_ip_[NET_IP_LEN];
         memcpy(src_ip_, hrd->src_ip, NET_IP_LEN);
